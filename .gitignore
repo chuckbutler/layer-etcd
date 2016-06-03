@@ -3,3 +3,4 @@ resources
 .coverage
 .cache
 __pycache__
+.coverage

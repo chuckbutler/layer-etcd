@@ -13,10 +13,9 @@ class TestEtcdCtl:
     def test_register(self):
         with patch('etcdctl.check_output') as spcm:
             self.etcdctl().register({'private_address': '127.0.0.1',
-                                     'port': '1212',
                                      'unit_name': 'etcd0',
                                      'management_port': '1313',
-                                     'leader_address': '127.1.1.1'})
+                                     'leader_address': 'http://127.1.1.1:1212'})
             spcm.assert_called_with(['etcdctl',
                                      '-C',
                                      'http://127.1.1.1:1212',
@@ -27,13 +26,9 @@ class TestEtcdCtl:
 
     def test_unregister(self):
         with patch('etcdctl.check_output') as spcm:
-            self.etcdctl().unregister({'leader_address': '127.1.1.1',
-                                       'port': '1212',
-                                       'unit_id': 'br1212121212'})
+            self.etcdctl().unregister('br1212121212')
 
             spcm.assert_called_with(['etcdctl',
-                                     '-C',
-                                     'http://127.1.1.1:1212',
                                      'member',
                                      'remove',
                                      'br1212121212'])
@@ -46,9 +41,7 @@ class TestEtcdCtl:
             assert(members['etcd22']['peer_urls'] == 'https://10.113.96.220:2380')  # noqa
             assert(members['etcd22']['client_urls'] == 'https://10.113.96.220:2379')  # noqa
 
-    def test_cluster_health_unhealthy(self):
-        with patch('etcdctl.check_output') as comock:
-            comock.return_value = b''
-
-    def test_cluster_health_healthy(self):
+    def test_member_list_with_unstarted_member(self):
+        # 57fa5c39949c138e[unstarted]: peerURLs=http://10.113.96.80:2380
+        # bb0f83ebb26386f7: name=etcd9 peerURLs=https://10.113.96.178:2380 clientURLs=https://10.113.96.178:2379
         pass

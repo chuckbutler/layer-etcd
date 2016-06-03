@@ -11,54 +11,73 @@ class EtcdCtl:
     registration, cluster health, and other operations '''
 
     def register(self, cluster_data):
-        ''' Perform self registration against the etcd leader.
+        ''' Perform self registration against the etcd leader and returns the
+        raw output response.
 
         @params cluster_data - a dict of data to fill out the request to
         push our registration to the leader
         requires keys: leader_address, port, unit_name, private_address,
         management_port
         '''
-        command = "etcdctl -C http://{}:{} member add {}" \
+        command = "etcdctl -C {} member add {}" \
                   " http://{}:{}".format(cluster_data['leader_address'],
-                                         cluster_data['port'],
                                          cluster_data['unit_name'],
                                          cluster_data['private_address'],
                                          cluster_data['management_port'])
 
         try:
-            self.run(command)
+            result = self.run(command)
         except CalledProcessError:
             log('Notice:  Unit failed self registration', 'WARNING')
+            return
 
-    def unregister(self, cluster_data):
+        # ['Added member named etcd12 with ID b9ab5b5a2e4baec5 to cluster',
+        # '', 'ETCD_NAME="etcd12"',
+        #  'ETCD_INITIAL_CLUSTER="etcd11=https://10.113.96.26:2380,etcd12=http://10.113.96.206:2380"',
+        # 'ETCD_INITIAL_CLUSTER_STATE="existing"', '']
+
+        reg = {}
+
+        for line in result.split('\n'):
+            if 'Added member' in line:
+                reg['cluster_unit_id'] = line.split('ID')[-1].strip(' ').split(' ')[0]  # noqa
+            if 'ETCD_INITIAL_CLUSTER=' in line:
+                reg['cluster'] = line.split('="')[-1].rstrip('"')
+        return reg
+
+    def unregister(self, unit_id):
         ''' Perform self deregistration during unit teardown
 
         @params cluster_data - a dict of data to fill out the request to push
         our deregister command to the leader. requires  keys: leader_address,
         port, etcd_unit_guid
 
-        The unit_id can be obtained from the etcdctl.member_list() dict
+        The unit_id can be obtained from the EtcdDatabag dict
         '''
-        command = "etcdctl -C http://{}:{} member remove " \
-                  "{}".format(cluster_data['leader_address'],
-                              cluster_data['port'],
-                              cluster_data['unit_id'])
-        self.run(command)
+        command = "etcdctl member remove {}".format(unit_id)
 
-    def member_list(self):
+        return self.run(command)
+
+    def member_list(self, leader_address=None):
         ''' Returns the output from `etcdctl member list` as a python dict
         organized by unit_name, containing all the data-points in the resulting
         response. '''
 
         members = {}
-        out = self.run("etcdctl member list")
+        if leader_address:
+            cmd = "etcdctl --endpoint {} member list".format(leader_address)
+            out = self.run(cmd)
+        else:
+            out = self.run("etcdctl member list")
         raw_member_list = out.strip('\n').split('\n')
-        print(raw_member_list)
         # Expect output like this:
         # 4f24ee16c889f6c1: name=etcd20 peerURLs=https://10.113.96.197:2380 clientURLs=https://10.113.96.197:2379  # noqa
         # edc04bb81479d7e8: name=etcd21 peerURLs=https://10.113.96.243:2380 clientURLs=https://10.113.96.243:2379  # noqa
 
         for unit in raw_member_list:
+            if '[unstarted]' in unit:
+                members['unstarted'] = {}
+                continue
             unit_guid = unit.split(':')[0]
             unit_name = unit.split(' ')[1].split("=")[-1]
             peer_urls = unit.split(' ')[2].split("=")[-1]

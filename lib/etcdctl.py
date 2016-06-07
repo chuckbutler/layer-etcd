@@ -58,6 +58,18 @@ class EtcdCtl:
 
         return self.run(command)
 
+    def member_update(self, unit_id, address):
+        ''' If configuration changes, we need to inform the cluster over raft
+        that it is reconfiguring
+
+        @params unit_id: the id of the unit in the cluster, obtained from
+        member_list
+
+        @params address: the connection string of where to contact the peer
+        '''
+        out = self.run('etcdctl member update {} {}'.format(unit_id, address))
+        return out
+
     def member_list(self, leader_address=None):
         ''' Returns the output from `etcdctl member list` as a python dict
         organized by unit_name, containing all the data-points in the resulting

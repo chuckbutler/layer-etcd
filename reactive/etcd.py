@@ -17,9 +17,9 @@ from charmhelpers.core.hookenv import leader_set
 from charmhelpers.core.hookenv import leader_get
 from charmhelpers.core.hookenv import resource_get
 
-from charmhelpers.core.hookenv import config
 from charmhelpers.core.hookenv import open_port
 from charmhelpers.core.hookenv import unit_get
+from charmhelpers.core import hookenv
 from charmhelpers.core import host
 from charmhelpers.core import unitdata
 from charmhelpers.fetch import apt_update
@@ -58,6 +58,61 @@ def remove_states():
     remove_state('etcd.installed')
 
 
+# @when('etcd.installed')
+# @when_any('config.changed.port')
+# def handle_client_port_configuration_change():
+#     bag = EtcdDatabag()
+#
+#     render('defaults', '/etc/defaults/etcd', bag.__dict__,
+#            owner='root', group='root')
+#     host.service_restart('etcd')
+
+
+@when('etcd.installed')
+@when('leadership.is_leader')
+@when_any('config.changed.management_port', 'etcd.management_port_delayed')
+def handle_leader_management_port_change():
+    ''' The leader translates unit addresses and adjusts the cluster
+    runtime configuration on behalf of its peers
+
+    management port updates will cause the cluster to lose connectivity.
+    the leader will update the member addresses accordingly and distribute
+    this information over the raft protocol.
+    '''
+    if not host.service_running('etcd'):
+        set_state('etcd.management_port_delayed')
+        return
+    else:
+        remove_state('etcd.management_port_delayed')
+
+    bag = EtcdDatabag()
+    cfg = hookenv.config()
+    etcdctl = EtcdCtl()
+    members = etcdctl.member_list()
+    for member in members:
+        if cfg.previous('management_port'):
+            old_peer_string = members[member]['peer_urls']
+            old_port = ":{}".format(cfg.previous('management_port'))
+            new_port = ":{}".format(cfg['management_port'])
+            new = old_peer_string.replace(old_port, new_port)
+            etcdctl.member_update(members[member]['unit_id'], new)
+
+
+@when('etcd.installed')
+@when_not('leadership.is_leader')
+@when_any('config.changed.management_port', 'etcd.management_port_delayed')
+def handle_follower_management_port_change():
+    ''' Follower nodes re-render their configuration and attempt coordinated
+    restart with the leader
+
+    management port updates will cause the cluster to lose connectivity.
+    the leader will update the member addresses accordingly and distribute
+    this information over the raft protocol.
+    '''
+    bag = EtcdDatabag()
+    render('defaults', '/etc/defaults', bag.__dict__)
+
+
 # @when('db.connected')
 # def send_connection_details(client):
 #     etcd = EtcdHelper()
@@ -73,6 +128,7 @@ def remove_states():
 #     etcd = EtcdHelper()
 #     proxy.provide_cluster_string(etcd.cluster_string())
 #
+
 
 @when_not('etcd.installed')
 def install_etcd():
@@ -101,7 +157,8 @@ def install_etcd():
             # data.
             if not is_state('etcd.package.adjusted'):
                 host.service('stop', 'etcd')
-                shutil.rmtree('/var/lib/etcd/default')
+                if os.path.exists('/var/lib/etcd/default'):
+                    shutil.rmtree('/var/lib/etcd/default')
                 set_state('etcd.package.adjusted')
             set_state('etcd.installed')
             return
@@ -340,6 +397,12 @@ def passive_dismiss_context(cluster):
     ''' All units undergo the departing phase. This is a no-op unless you
         are the leader '''
     cluster.dismiss()
+
+
+def render_and_restart_etcd(bag):
+    render('defaults', '/etc/defaults/etcd', bag.__dict__,
+           owner='root', group='root')
+    host.service_restart('etcd')
 
 
 def install(src, tgt):

@@ -5,6 +5,7 @@ includes:
   - 'layer:leadership'
   - 'interface:etcd'
   - 'interface:etcd-proxy'
+  - 'interface:tls'
 ignore:
   - tests
 defines:

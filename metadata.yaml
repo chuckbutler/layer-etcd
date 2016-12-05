@@ -14,6 +14,9 @@ provides:
 peers:
   cluster:
     interface: etcd
+# This is actually a stub to remove a deprecated relation
+  certificates:
+    interface: tls
 resources:
   snapshot:
     type: file
